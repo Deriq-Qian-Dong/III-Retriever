@@ -19,7 +19,6 @@ from torch.cuda.amp import GradScaler, autocast
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
-from transformers import AutoConfig, AutoTokenizer, BertModel
 
 import dataset_factory
 import utils
@@ -72,12 +71,15 @@ def define_args():
     parser.add_argument('--add_decoder', type=bool, default=False)
     parser.add_argument('--l2_normalize', type=bool, default=False)
     parser.add_argument('--warm_start_from', type=str, default="")
+    parser.add_argument('--generated_query', type=str, default="")
     parser.add_argument('--q_gen', type=bool, default=False)
-    parser.add_argument('--generated_query_len', type=int, default=10)
+    parser.add_argument('--generated_query_len', type=int, default=32)
     parser.add_argument('--alpha', type=float, default=0.1)
     parser.add_argument('--beta', type=float, default=0.1)
     parser.add_argument('--FN_threshold', type=float, default=0.9)
     parser.add_argument('--EN_threshold', type=float, default=0.1)
+    parser.add_argument('--ret_loss', type=bool, default=True)
+    parser.add_argument('--do_train', type=bool, default=False)
 
     # args = parser.parse_args(args=[])
     args = parser.parse_args()
@@ -92,30 +94,25 @@ def main_multi(args, model, optimizer):
 
     # 加载数据集
     query_dataset = dataset_factory.QueryDataset(args)
-    query_loader = DataLoader(query_dataset, batch_size=args.dev_batch_size, collate_fn=query_dataset._collate_fn, num_workers=3)
+    query_loader = DataLoader(query_dataset, batch_size=args.dev_batch_size, collate_fn=query_dataset._collate_fn, num_workers=1)
     passage_dataset = dataset_factory.PassageDataset(args)
-    passage_loader = DataLoader(passage_dataset, batch_size=args.dev_batch_size, collate_fn=passage_dataset._collate_fn, num_workers=3)
-    # validate_multi_gpu(model, query_loader, passage_loader, epoch, args)
-
-    # train_dataset = dataset_factory.RetrievalPAIRPretrainDataset(args)
-    # train_dataset = dataset_factory.RetrievalRocketQADataset(args)
-    train_dataset = dataset_factory.DualEncoderTrainDataset(args)
-
-    for epoch in range(1, args.epoch+1):
-        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-        train_sampler.set_epoch(epoch)
-        train_dataset.set_epoch(epoch)
-        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, collate_fn=train_dataset._collate_fn, sampler=train_sampler, num_workers=4)
-        args.alpha = 1
-        args.beta = 0
-        # args.FN_threshold = min(epoch/10, 0.9)
-        # print(args.alpha, args.beta, args.FN_threshold)
-        loss = train_iteration_multi_gpu(model, optimizer, train_loader, epoch, args)
-        del train_loader
-        torch.distributed.barrier()
-        if epoch%1==0:
-            validate_multi_gpu(model, query_loader, passage_loader, epoch, args)
+    passage_loader = DataLoader(passage_dataset, batch_size=args.dev_batch_size, collate_fn=passage_dataset._collate_fn, num_workers=1)
+    validate_multi_gpu(model, query_loader, passage_loader, epoch, args)
+    if args.do_train:
+        train_dataset = dataset_factory.DualEncoderTrainDataset(args)
+        for epoch in range(1, args.epoch+1):
+            train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+            train_sampler.set_epoch(epoch)
+            train_dataset.set_epoch(epoch)
+            train_loader = DataLoader(train_dataset, batch_size=args.batch_size, collate_fn=train_dataset._collate_fn, sampler=train_sampler, num_workers=1)
+            args.alpha = 1
+            args.beta = 1/(10**epoch)
+            loss = train_iteration_multi_gpu(model, optimizer, train_loader, epoch, args)
+            del train_loader
             torch.distributed.barrier()
+            if epoch%1==0:
+                validate_multi_gpu(model, query_loader, passage_loader, epoch, args)
+                torch.distributed.barrier()
 
 def validate_multi_gpu(model, query_loader, passage_loader, epoch, args):
     global best_mrr
@@ -276,9 +273,11 @@ def main_cli():
     model.to(device)
 
     params = [(k, v) for k, v in model.named_parameters() if v.requires_grad]
-    params = {'params': [v for k, v in params]}
+    # params = {'params': [v for k, v in params]}
+    non_head_params = {'params': [v for k, v in params if 'head' not in k]}
+    head_params = {'params': [v for k, v in params if 'head' in k], 'lr': 0.001}
     # optimizer = torch.optim.Adam([params], lr=args.learning_rate, weight_decay=0.0)
-    optimizer = optim.Lamb([params], lr=args.learning_rate, weight_decay=0.0)
+    optimizer = optim.Lamb([non_head_params, head_params], lr=args.learning_rate, weight_decay=0.0)
 
     if args.warm_start_from:
         print('warm start from ', args.warm_start_from)
@@ -288,15 +287,13 @@ def main_cli():
                 state_dict.pop(k)
                 continue
             state_dict[k.replace('module.','')] = state_dict.pop(k)
-        model.load_state_dict(state_dict)
+        model.load_state_dict(state_dict, strict=True)
 
     model = DistributedDataParallel(model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=False)
     print("model loaded on GPU%d"%local_rank)
     print(args.model_out_dir)
     os.makedirs(args.model_out_dir, exist_ok=True)
 
-    # we use the same qrels object for both training and validation sets
-    # main(model, dataset, train_pairs, qrels, valid_run, qrels, args.model_out_dir)
     main_multi(args, model, optimizer)
 
 if __name__ == '__main__':
