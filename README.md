@@ -10,7 +10,6 @@ The architecture is depicted in the following figure:
 #### Quick Start
 ##### 1. Install the requirements
 ```
-git clone git@github.com:Deriq-Qian-Dong/III-Retriever.git
 pip install -r requirements.txt
 ```
 ##### 2. Download the data
