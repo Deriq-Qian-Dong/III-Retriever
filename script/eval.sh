@@ -11,7 +11,7 @@ FN_threshold=.9
 retriever_model_name_or_path=./data/RetroMAE_MSMARCO_finetune
 n_head_layers=1
 top1000=./data/train_negs.tsv
-generated_query=./data/RAKE_generated.tsv
+generated_query=./data/generated.tsv
 learning_rate=2e-5
 # learning_rate=1e-3
 ### 下面是永远不用改的
@@ -26,15 +26,13 @@ warmup_proportion=0.1
 eval_step_proportion=0.01
 report_step=100
 epoch=200
-collection=./collection.splitTitle.tsv
-qrels=./data/${dataset}/qrels.mrr43-5.tsv
+collection=./data/collection.splitTitle.tsv
 query=./data/${dataset}/train.query.txt
 fp16=true
 output_dir=output
 log_dir=${output_dir}/log
 mkdir -p ${output_dir}
 mkdir -p ${log_dir}
-gpu_partial=1
 master_port=29500
 echo "=================start train ${OMPI_COMM_WORLD_RANK:-0}=================="
 python -m torch.distributed.launch \

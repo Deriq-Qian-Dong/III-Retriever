@@ -1,5 +1,5 @@
 git lfs install
-git clone https://huggingface.co/CIKM23/III-Retriever
+git clone https://huggingface.co/datasets/qian/III-Retriever
 git clone https://huggingface.co/Shitao/RetroMAE_MSMARCO_distill
 git clone https://huggingface.co/Shitao/RetroMAE_MSMARCO_finetune
 mkdir -p data

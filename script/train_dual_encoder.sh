@@ -11,7 +11,7 @@ retriever_model_name_or_path=./data/RetroMAE_MSMARCO_finetune
 n_head_layers=1
 warm_start_from=./data/pretrained_decoder_with_retro-ft_freezed-epoch-8.p
 top1000=./data/train_negs.tsv
-generated_query=./data/RAKE_generated.tsv
+generated_query=./data/generated.tsv
 learning_rate=2e-5
 # learning_rate=1e-3
 ### 下面是永远不用改的
@@ -27,7 +27,7 @@ eval_step_proportion=0.01
 report_step=100
 epoch=200
 collection=./collection.splitTitle.tsv
-qrels=./data/${dataset}/qrels.mrr43-5.tsv
+qrels=./data/${dataset}/qrels.tsv
 query=./data/${dataset}/train.query.txt
 fp16=true
 output_dir=output
